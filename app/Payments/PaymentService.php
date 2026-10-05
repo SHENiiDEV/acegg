@@ -21,10 +21,52 @@ class PaymentService
         return config('payments');
     }
 
+    public function defaultCurrency(): string
+    {
+        $default = strtoupper((string) ($this->config()['currency'] ?? 'GBP'));
+
+        return isset($this->config()['currencies'][$default]) ? $default : 'GBP';
+    }
+
+    /** @return array<string, mixed> */
+    public function currencyConfig(?string $currency = null): array
+    {
+        $currency = strtoupper((string) ($currency ?: $this->defaultCurrency()));
+        $currencies = $this->config()['currencies'] ?? [];
+
+        if (isset($currencies[$currency])) {
+            return $currencies[$currency];
+        }
+
+        $def = $this->defaultCurrency();
+        if (isset($currencies[$def])) {
+            return $currencies[$def];
+        }
+
+        return [
+            'code' => $this->config()['currency'] ?? 'GBP',
+            'symbol' => $this->config()['currency_symbol'] ?? '£',
+            'name' => ($this->config()['currency'] ?? 'GBP').' ('.($this->config()['currency_symbol'] ?? '£').')',
+            'coins_per_cent' => $this->config()['coins_per_cent'] ?? 12_000,
+            'min_amount' => $this->config()['min_amount'] ?? 400,
+            'max_amount' => $this->config()['max_amount'] ?? 85_000,
+            'daily_limit' => $this->config()['daily_limit'] ?? 170_000,
+            'presets' => [10, 25, 50, 100],
+            'prices' => [
+                'starter' => 450,
+                'basic' => 900,
+                'popular' => 2250,
+                'pro' => 4500,
+                'highroller' => 9000,
+                'whale' => 22500,
+            ],
+        ];
+    }
+
     public function gateway(): PaymentGateway
     {
         $driver = $this->config()['driver'];
-        if ($driver === 'sandbox' && app()->isProduction() && ! $this->config()['sandbox_in_production']) {
+        if ($driver === 'sandbox' && app()->isProduction() && ! ($this->config()['sandbox_in_production'] ?? false)) {
             throw new RuntimeException('Payments are not configured yet.');
         }
         $class = $this->config()['gateways'][$driver] ?? throw new RuntimeException("Unknown payment driver [{$driver}].");
@@ -33,13 +75,49 @@ class PaymentService
     }
 
     /** @return array<int, array<string, mixed>> */
-    public function packages(): array
+    public function packages(?string $currency = null): array
     {
-        return array_map(function (array $p) {
-            $base = $p['price'] * $this->config()['coins_per_cent'];
+        $currCfg = $this->currencyConfig($currency);
+        $rawPackages = $this->config()['packages'] ?? [];
 
-            return [...$p, 'coins' => $base, 'bonus_coins' => intdiv($base * $p['bonus'], 100)];
-        }, $this->config()['packages']);
+        return array_map(function (array $p) use ($currCfg) {
+            $price = $currCfg['prices'][$p['id']] ?? ($p['price'] ?? 500);
+            $bonus = $p['bonus'] ?? 0;
+            $base = $price * $currCfg['coins_per_cent'];
+
+            return [
+                'id' => $p['id'],
+                'name' => $p['name'],
+                'price' => $price,
+                'bonus' => $bonus,
+                'badge' => $p['badge'] ?? null,
+                'coins' => $base,
+                'bonus_coins' => intdiv($base * $bonus, 100),
+            ];
+        }, $rawPackages);
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    public function allCurrencies(): array
+    {
+        $currencies = $this->config()['currencies'] ?? [];
+        $result = [];
+
+        foreach ($currencies as $code => $c) {
+            $result[$code] = [
+                'code' => $c['code'],
+                'symbol' => $c['symbol'],
+                'name' => $c['name'],
+                'coins_per_cent' => $c['coins_per_cent'],
+                'min' => $c['min_amount'],
+                'max' => $c['max_amount'],
+                'daily_limit' => $c['daily_limit'],
+                'presets' => $c['presets'] ?? [10, 25, 50, 100],
+                'packages' => $this->packages($code),
+            ];
+        }
+
+        return $result;
     }
 
     /**
@@ -55,37 +133,49 @@ class PaymentService
         ));
     }
 
-    public function create(User $user, ?string $packageId, ?int $customAmount): Payment
+    public function create(User $user, ?string $packageId, ?int $customAmount, ?string $currency = null): Payment
     {
         $cfg = $this->config();
+        $currCfg = $this->currencyConfig($currency);
+        $currCode = $currCfg['code'];
+        $currSymbol = $currCfg['symbol'];
 
         if ($packageId !== null) {
-            $package = collect($this->packages())->firstWhere('id', $packageId)
+            $packages = $this->packages($currCode);
+            $package = collect($packages)->firstWhere('id', $packageId)
                 ?? throw new InvalidArgumentException('Unknown package.');
             [$amount, $coins, $bonus] = [$package['price'], $package['coins'], $package['bonus_coins']];
         } else {
             $amount = (int) $customAmount;
-            if ($amount < $cfg['min_amount'] || $amount > $cfg['max_amount']) {
+            if ($amount < $currCfg['min_amount'] || $amount > $currCfg['max_amount']) {
                 throw new InvalidArgumentException(sprintf(
                     'Amount must be between %s%s and %s%s.',
-                    $cfg['currency_symbol'], number_format($cfg['min_amount'] / 100, 2),
-                    $cfg['currency_symbol'], number_format($cfg['max_amount'] / 100, 2),
+                    $currSymbol, number_format($currCfg['min_amount'] / 100, 2),
+                    $currSymbol, number_format($currCfg['max_amount'] / 100, 2),
                 ));
             }
-            [$coins, $bonus] = [$amount * $cfg['coins_per_cent'], 0];
+            [$coins, $bonus] = [$amount * $currCfg['coins_per_cent'], 0];
         }
 
-        $spent = (int) Payment::where('user_id', $user->id)->where('status', 'paid')
-            ->where('paid_at', '>=', now()->subDay())->sum('amount');
-        if ($spent + $amount > $cfg['daily_limit']) {
-            throw new InvalidArgumentException(sprintf('Daily purchase limit of %s%s reached.', $cfg['currency_symbol'], number_format($cfg['daily_limit'] / 100, 2)));
+        $spent = (int) Payment::where('user_id', $user->id)
+            ->where('currency', $currCode)
+            ->where('status', 'paid')
+            ->where('paid_at', '>=', now()->subDay())
+            ->sum('amount');
+
+        if ($spent + $amount > $currCfg['daily_limit']) {
+            throw new InvalidArgumentException(sprintf(
+                'Daily purchase limit of %s%s reached.',
+                $currSymbol,
+                number_format($currCfg['daily_limit'] / 100, 2)
+            ));
         }
 
         return Payment::create([
             'user_id' => $user->id,
             'package' => $packageId,
             'amount' => $amount,
-            'currency' => $cfg['currency'],
+            'currency' => $currCode,
             'coins' => $coins,
             'bonus_coins' => $bonus,
             'status' => 'pending',

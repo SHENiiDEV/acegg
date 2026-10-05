@@ -22,17 +22,22 @@ class TopupController extends Controller
     {
         $cfg = $this->payments->config();
         $user = $request->user();
+        $defaultCurrency = $this->payments->defaultCurrency();
+        $currCfg = $this->payments->currencyConfig($defaultCurrency);
+        $allCurrencies = $this->payments->allCurrencies();
 
         return Inertia::render('casino/topup', [
-            'packages' => $this->payments->packages(),
+            'currencies' => $allCurrencies,
+            'defaultCurrency' => $defaultCurrency,
+            'packages' => $this->payments->packages($defaultCurrency),
             'settings' => [
-                'currency' => $cfg['currency'],
-                'symbol' => $cfg['currency_symbol'],
-                'coins_per_cent' => $cfg['coins_per_cent'],
-                'min' => $cfg['min_amount'],
-                'max' => $cfg['max_amount'],
-                'daily_limit' => $cfg['daily_limit'],
-                'sandbox' => $cfg['driver'] === 'sandbox',
+                'currency' => $currCfg['code'],
+                'symbol' => $currCfg['symbol'],
+                'coins_per_cent' => $currCfg['coins_per_cent'],
+                'min' => $currCfg['min_amount'],
+                'max' => $currCfg['max_amount'],
+                'daily_limit' => $currCfg['daily_limit'],
+                'sandbox' => ($cfg['driver'] ?? 'sandbox') === 'sandbox',
             ],
             'missingProfile' => $user ? $this->payments->missingProfileFields($user) : [],
             'recent' => $user ? Payment::where('user_id', $user->id)->latest()->limit(8)->get()->map->present() : [],
@@ -42,6 +47,7 @@ class TopupController extends Controller
     public function store(Request $request): SymfonyResponse
     {
         $data = $request->validate([
+            'currency' => ['nullable', 'string', 'max:10'],
             'package' => ['nullable', 'string', 'max:40'],
             'amount' => ['nullable', 'numeric', 'min:0'],
         ]);
@@ -58,6 +64,7 @@ class TopupController extends Controller
                 $user,
                 $data['package'] ?? null,
                 isset($data['amount']) && empty($data['package']) ? (int) round(((float) $data['amount']) * 100) : null,
+                $data['currency'] ?? null,
             );
 
             return Inertia::location($this->payments->gateway()->checkoutUrl($payment));

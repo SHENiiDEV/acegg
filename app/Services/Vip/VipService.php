@@ -29,8 +29,9 @@ class VipService
         return config('casino.vip.levels');
     }
 
-    public function levelIndex(int $xp): int
+    public function levelIndex(?int $xp): int
     {
+        $xp = (int) ($xp ?? 0);
         $index = 0;
         foreach ($this->levels() as $i => $level) {
             if ($xp >= $level['xp']) {
@@ -122,12 +123,13 @@ class VipService
     public function overview(User $user): array
     {
         $levels = $this->levels();
-        $current = $this->levelIndex($user->vip_xp);
+        $xp = (int) ($user->vip_xp ?? 0);
+        $current = $this->levelIndex($xp);
         $next = $levels[$current + 1] ?? null;
         $claimed = DB::table('reward_claims')->where('user_id', $user->id)->pluck('key')->flip();
 
         return [
-            'xp' => $user->vip_xp,
+            'xp' => $xp,
             'level' => $current,
             'levels' => array_map(fn ($l, $i) => [
                 ...$l,

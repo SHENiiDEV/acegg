@@ -32,7 +32,7 @@ class TopupCompleted extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         $p = $this->payment;
-        $symbol = config('payments.currency_symbol');
+        $symbol = $p->symbol();
 
         return (new MailMessage)
             ->subject('Your '.config('app.name').' purchase receipt — '.number_format($p->totalCoins() / 100).' coins')

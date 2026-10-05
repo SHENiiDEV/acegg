@@ -8,34 +8,67 @@ import { formatCoins } from '@/lib/casino';
 import { cn } from '@/lib/utils';
 
 type Package = { id: string; name: string; price: number; bonus: number; badge: string | null; coins: number; bonus_coins: number };
+type CurrencyInfo = {
+    code: string;
+    symbol: string;
+    name: string;
+    coins_per_cent: number;
+    min: number;
+    max: number;
+    daily_limit: number;
+    presets: number[];
+    packages: Package[];
+};
 type Settings = { currency: string; symbol: string; coins_per_cent: number; min: number; max: number; daily_limit: number; sandbox: boolean };
-type PaymentRow = { id: string; package: string | null; amount: number; coins: number; bonus_coins: number; status: string; created_at: string };
+type PaymentRow = { id: string; package: string | null; amount: number; currency: string; currency_symbol?: string; coins: number; bonus_coins: number; status: string; created_at: string };
 
 const money = (cents: number, symbol: string) => `${symbol}${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const TONES = ['amber', 'sky', 'lime', 'violet', 'rose', 'amber'] as const;
 
 export default function Topup({
-    packages,
-    settings,
+    currencies,
+    defaultCurrency,
+    packages: initialPackages,
+    settings: initialSettings,
     missingProfile,
     recent,
 }: {
-    packages: Package[];
-    settings: Settings;
+    currencies?: Record<string, CurrencyInfo>;
+    defaultCurrency?: string;
+    packages?: Package[];
+    settings?: Settings;
     missingProfile: string[];
     recent: PaymentRow[];
 }) {
     const { auth, wallet } = usePage().props;
+    const currencyList = currencies ? Object.values(currencies) : [];
+    const [activeCurrencyCode, setActiveCurrencyCode] = useState<string>(
+        defaultCurrency || initialSettings?.currency || 'GBP'
+    );
+
+    const activeCurrency: CurrencyInfo = currencies?.[activeCurrencyCode] ?? {
+        code: initialSettings?.currency || 'GBP',
+        symbol: initialSettings?.symbol || '£',
+        name: `${initialSettings?.currency || 'GBP'} (${initialSettings?.symbol || '£'})`,
+        coins_per_cent: initialSettings?.coins_per_cent || 12000,
+        min: initialSettings?.min || 400,
+        max: initialSettings?.max || 85000,
+        daily_limit: initialSettings?.daily_limit || 170000,
+        presets: [10, 25, 50, 100],
+        packages: initialPackages || [],
+    };
+
+    const packages = activeCurrency.packages;
     const [selected, setSelected] = useState<string | null>(packages.find((p) => p.badge === 'Most popular')?.id ?? packages[0]?.id ?? null);
     const [custom, setCustom] = useState('');
     const [busy, setBusy] = useState(false);
 
     const customCents = Math.round((parseFloat(custom.replace(',', '.')) || 0) * 100);
-    const customValid = customCents >= settings.min && customCents <= settings.max;
+    const customValid = customCents >= activeCurrency.min && customCents <= activeCurrency.max;
     const pkg = packages.find((p) => p.id === selected) ?? null;
     const usingCustom = selected === null;
     const summary = usingCustom
-        ? { price: customCents, coins: customCents * settings.coins_per_cent, bonus: 0 }
+        ? { price: customCents, coins: customCents * activeCurrency.coins_per_cent, bonus: 0 }
         : pkg
           ? { price: pkg.price, coins: pkg.coins, bonus: pkg.bonus_coins }
           : null;
@@ -43,7 +76,11 @@ export default function Topup({
 
     const pay = () => {
         setBusy(true);
-        router.post('/topup', usingCustom ? { amount: customCents / 100 } : { package: selected }, { onFinish: () => setBusy(false) });
+        router.post(
+            '/topup',
+            usingCustom ? { amount: customCents / 100, currency: activeCurrency.code } : { package: selected, currency: activeCurrency.code },
+            { onFinish: () => setBusy(false) }
+        );
     };
 
     return (
@@ -71,13 +108,6 @@ export default function Topup({
                 </div>
             </section>
 
-            {settings.sandbox && (
-                <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-                    <AlertTriangle className="size-4 shrink-0" />
-                    Test mode — payments go through the sandbox checkout, no money is charged. Set PAYMENT_DRIVER in .env when a provider is connected.
-                </div>
-            )}
-
             {auth.user && missingProfile.length > 0 && (
                 <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-sky/30 bg-sky/10 px-4 py-3 text-sm text-sky">
                     <ShieldCheck className="size-4 shrink-0" />
@@ -90,6 +120,34 @@ export default function Topup({
 
             <div className="mt-5 grid gap-5 pb-20 xl:grid-cols-[1fr_360px] xl:pb-0 [&>*]:min-w-0">
                 <div>
+                    {/* Currency Selector */}
+                    {currencyList.length > 1 && (
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-surface p-2.5 ring-1 ring-line/60">
+                            <span className="px-2 text-xs font-semibold text-dim uppercase">Currency:</span>
+                            <div className="flex gap-1.5">
+                                {currencyList.map((c) => (
+                                    <button
+                                        key={c.code}
+                                        type="button"
+                                        onClick={() => {
+                                            setActiveCurrencyCode(c.code);
+                                            // Keep package selection or reset custom
+                                        }}
+                                        className={cn(
+                                            'flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-bold transition',
+                                            activeCurrencyCode === c.code
+                                                ? 'bg-lime text-lime-ink shadow-sm'
+                                                : 'bg-surface-2 text-white/80 hover:bg-line hover:text-white',
+                                        )}
+                                    >
+                                        <span className="font-mono">{c.symbol}</span>
+                                        <span>{c.code}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Packages */}
                     <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                         {packages.map((p, i) => {
@@ -120,7 +178,7 @@ export default function Topup({
                                         )}
                                     </div>
                                     <div className={cn('mt-3 w-full rounded-xl py-2 text-sm font-bold', on ? 'bg-lime text-lime-ink' : 'bg-surface-2 text-white')}>
-                                        {money(p.price, settings.symbol)}
+                                        {money(p.price, activeCurrency.symbol)}
                                     </div>
                                 </button>
                             );
@@ -138,14 +196,14 @@ export default function Topup({
                             <div>
                                 <div className="font-semibold">Enter your own amount</div>
                                 <div className="text-xs text-dim">
-                                    {money(settings.min, settings.symbol)} – {money(settings.max, settings.symbol)} · {formatCoins(100 * settings.coins_per_cent, 0)} coins per{' '}
-                                    {money(100, settings.symbol)}
+                                    {money(activeCurrency.min, activeCurrency.symbol)} – {money(activeCurrency.max, activeCurrency.symbol)} · {formatCoins(100 * activeCurrency.coins_per_cent, 0)} coins per{' '}
+                                    {money(100, activeCurrency.symbol)}
                                 </div>
                             </div>
                         </div>
                         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
                             <label className="flex h-12 flex-1 items-center gap-2 rounded-xl border border-line bg-surface-2/70 px-4 focus-within:border-lime/70 focus-within:ring-4 focus-within:ring-lime/15">
-                                <span className="text-lg font-bold text-dim">{settings.symbol}</span>
+                                <span className="text-lg font-bold text-dim">{activeCurrency.symbol}</span>
                                 <input
                                     inputMode="decimal"
                                     value={custom}
@@ -159,7 +217,7 @@ export default function Topup({
                                 />
                             </label>
                             <div className="flex gap-1.5">
-                                {[15, 30, 75, 150].map((v) => (
+                                {activeCurrency.presets.map((v) => (
                                     <button
                                         key={v}
                                         type="button"
@@ -169,7 +227,7 @@ export default function Topup({
                                         }}
                                         className="rounded-lg bg-surface-2 px-3 py-2 text-xs font-semibold hover:bg-line"
                                     >
-                                        {settings.symbol}
+                                        {activeCurrency.symbol}
                                         {v}
                                     </button>
                                 ))}
@@ -177,12 +235,12 @@ export default function Topup({
                         </div>
                         {usingCustom && custom !== '' && !customValid && (
                             <p className="mt-2 text-xs text-red-300">
-                                Enter an amount between {money(settings.min, settings.symbol)} and {money(settings.max, settings.symbol)}.
+                                Enter an amount between {money(activeCurrency.min, activeCurrency.symbol)} and {money(activeCurrency.max, activeCurrency.symbol)}.
                             </p>
                         )}
                         {usingCustom && customValid && (
                             <p className="mt-2 flex items-center gap-1.5 text-sm text-white/80">
-                                You get <CoinIcon className="size-4" /> <b className="text-white">{formatCoins(customCents * settings.coins_per_cent, 0)}</b> coins
+                                You get <CoinIcon className="size-4" /> <b className="text-white">{formatCoins(customCents * activeCurrency.coins_per_cent, 0)}</b> coins
                             </p>
                         )}
                     </div>
@@ -193,12 +251,13 @@ export default function Topup({
                     <div className="rounded-2xl bg-surface p-5 ring-1 ring-line/60">
                         <div className="font-semibold">Order summary</div>
                         <dl className="mt-4 space-y-2 text-sm">
+                            <Row label="Currency" value={`${activeCurrency.code} (${activeCurrency.symbol})`} />
                             <Row label="Package" value={usingCustom ? 'Custom amount' : (pkg?.name ?? '—')} />
                             <Row label="Coins" value={summary ? formatCoins(summary.coins, 0) : '—'} />
                             <Row label="Bonus coins" value={summary && summary.bonus > 0 ? `+${formatCoins(summary.bonus, 0)}` : '—'} accent />
                             <div className="my-3 h-px bg-line/60" />
                             <Row label="You receive" value={summary ? formatCoins(summary.coins + summary.bonus, 0) : '—'} big />
-                            <Row label="Total to pay" value={summary && summary.price > 0 ? money(summary.price, settings.symbol) : '—'} big />
+                            <Row label="Total to pay" value={summary && summary.price > 0 ? money(summary.price, activeCurrency.symbol) : '—'} big />
                         </dl>
                         {auth.user ? (
                             <button
@@ -208,7 +267,7 @@ export default function Topup({
                                 className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-lime py-3.5 text-sm font-bold text-lime-ink shadow-[0_8px_24px_-10px_rgba(201,247,58,.9)] transition hover:brightness-110 disabled:bg-line disabled:text-dim disabled:shadow-none"
                             >
                                 <Lock className="size-4" />
-                                {busy ? 'Redirecting…' : summary && summary.price > 0 ? `Pay ${money(summary.price, settings.symbol)}` : 'Choose an amount'}
+                                {busy ? 'Redirecting…' : summary && summary.price > 0 ? `Pay ${money(summary.price, activeCurrency.symbol)}` : 'Choose an amount'}
                             </button>
                         ) : (
                             <Link href="/login" className="mt-5 block rounded-xl bg-lime py-3.5 text-center text-sm font-bold text-lime-ink">
@@ -231,7 +290,7 @@ export default function Topup({
                         ))}
                     </div>
                     <div className="flex items-center gap-2 px-1 text-xs text-dim">
-                        <BadgeCheck className="size-4 text-lime" /> Secure checkout · 256-bit SSL · Daily limit {money(settings.daily_limit, settings.symbol)}
+                        <BadgeCheck className="size-4 text-lime" /> Secure checkout · 256-bit SSL · Daily limit {money(activeCurrency.daily_limit, activeCurrency.symbol)}
                     </div>
                 </aside>
             </div>
@@ -255,7 +314,7 @@ export default function Topup({
                             disabled={!canPay || busy}
                             className="flex items-center gap-2 rounded-xl bg-lime px-5 py-3 text-sm font-bold text-lime-ink shadow-[0_8px_24px_-10px_rgba(201,247,58,.9)] disabled:bg-line disabled:text-dim disabled:shadow-none"
                         >
-                            <Lock className="size-4" /> {busy ? '…' : `Pay ${money(summary.price, settings.symbol)}`}
+                            <Lock className="size-4" /> {busy ? '…' : `Pay ${money(summary.price, activeCurrency.symbol)}`}
                         </button>
                     </div>
                 </div>
@@ -276,7 +335,7 @@ export default function Topup({
                                 </span>
                                 <span className="text-right tabular-nums">
                                     <span className="block font-bold">{formatCoins(p.coins + p.bonus_coins, 0)} coins</span>
-                                    <span className="text-xs text-dim">{money(p.amount, settings.symbol)}</span>
+                                    <span className="text-xs text-dim">{money(p.amount, p.currency_symbol || activeCurrency.symbol)}</span>
                                 </span>
                             </Link>
                         ))}

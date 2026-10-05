@@ -29,9 +29,10 @@ class TopupTest extends TestCase
         Notification::fake();
         $user = User::factory()->create(['balance' => 0]);
 
-        $this->actingAs($user)->post('/topup', ['package' => 'popular'])->assertRedirect();
+        $this->actingAs($user)->post('/topup', ['package' => 'popular', 'currency' => 'EUR'])->assertRedirect();
         $payment = Payment::firstOrFail();
         $this->assertSame('pending', $payment->status);
+        $this->assertSame('EUR', $payment->currency);
         $this->assertSame(2500, $payment->amount);
 
         $url = URL::temporarySignedRoute('topup.sandbox', now()->addMinutes(5), ['payment' => $payment->id]);
@@ -44,14 +45,31 @@ class TopupTest extends TestCase
         Notification::assertSentToTimes($user, TopupCompleted::class, 1);
     }
 
+    public function test_buying_a_package_with_gbp(): void
+    {
+        Notification::fake();
+        $user = User::factory()->create(['balance' => 0]);
+
+        $this->actingAs($user)->post('/topup', ['package' => 'popular', 'currency' => 'GBP'])->assertRedirect();
+        $payment = Payment::firstOrFail();
+        $this->assertSame('GBP', $payment->currency);
+        $this->assertSame(2250, $payment->amount);
+
+        $url = URL::temporarySignedRoute('topup.sandbox', now()->addMinutes(5), ['payment' => $payment->id]);
+        $this->actingAs($user)->post($url, ['decision' => 'approve'])->assertRedirect('/topup/'.$payment->id);
+
+        $expected = 2250 * 12_000 + intdiv(2250 * 12_000 * 20, 100);
+        $this->assertSame($expected, $user->fresh()->balance);
+    }
+
     public function test_custom_amount_limits_and_profile_requirement(): void
     {
         $user = User::factory()->create();
-        $this->actingAs($user)->post('/topup', ['amount' => 1]);          // below €5
-        $this->actingAs($user)->post('/topup', ['amount' => 5000]);       // above €1,000
+        $this->actingAs($user)->post('/topup', ['amount' => 1, 'currency' => 'EUR']);          // below €5
+        $this->actingAs($user)->post('/topup', ['amount' => 5000, 'currency' => 'EUR']);       // above €1,000
         $this->assertSame(0, Payment::count());
 
-        $this->actingAs($user)->post('/topup', ['amount' => 12.5]);
+        $this->actingAs($user)->post('/topup', ['amount' => 12.5, 'currency' => 'EUR']);
         $this->assertSame(1250, Payment::firstOrFail()->amount);
 
         $incomplete = User::factory()->create(['address_line' => null]);

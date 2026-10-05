@@ -53,6 +53,16 @@ class Payment extends Model
         return $this->status === 'pending';
     }
 
+    public function symbol(): string
+    {
+        return match ($this->currency) {
+            'GBP' => '£',
+            'EUR' => '€',
+            'USD' => '$',
+            default => config('payments.currencies.'.$this->currency.'.symbol', config('payments.currency_symbol', '£')),
+        };
+    }
+
     /** @return array<string, mixed> */
     public function present(): array
     {
@@ -61,6 +71,7 @@ class Payment extends Model
             'package' => $this->package,
             'amount' => $this->amount,
             'currency' => $this->currency,
+            'currency_symbol' => $this->symbol(),
             'coins' => $this->coins,
             'bonus_coins' => $this->bonus_coins,
             'status' => $this->status,
