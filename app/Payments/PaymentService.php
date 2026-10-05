@@ -147,28 +147,10 @@ class PaymentService
             [$amount, $coins, $bonus] = [$package['price'], $package['coins'], $package['bonus_coins']];
         } else {
             $amount = (int) $customAmount;
-            if ($amount < $currCfg['min_amount'] || $amount > $currCfg['max_amount']) {
-                throw new InvalidArgumentException(sprintf(
-                    'Amount must be between %s%s and %s%s.',
-                    $currSymbol, number_format($currCfg['min_amount'] / 100, 2),
-                    $currSymbol, number_format($currCfg['max_amount'] / 100, 2),
-                ));
+            if ($amount <= 0) {
+                throw new InvalidArgumentException('Please enter a valid amount.');
             }
             [$coins, $bonus] = [$amount * $currCfg['coins_per_cent'], 0];
-        }
-
-        $spent = (int) Payment::where('user_id', $user->id)
-            ->where('currency', $currCode)
-            ->where('status', 'paid')
-            ->where('paid_at', '>=', now()->subDay())
-            ->sum('amount');
-
-        if ($spent + $amount > $currCfg['daily_limit']) {
-            throw new InvalidArgumentException(sprintf(
-                'Daily purchase limit of %s%s reached.',
-                $currSymbol,
-                number_format($currCfg['daily_limit'] / 100, 2)
-            ));
         }
 
         return Payment::create([

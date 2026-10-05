@@ -64,7 +64,7 @@ export default function Topup({
     const [busy, setBusy] = useState(false);
 
     const customCents = Math.round((parseFloat(custom.replace(',', '.')) || 0) * 100);
-    const customValid = customCents >= activeCurrency.min && customCents <= activeCurrency.max;
+    const customValid = customCents > 0;
     const pkg = packages.find((p) => p.id === selected) ?? null;
     const usingCustom = selected === null;
     const summary = usingCustom
@@ -196,7 +196,7 @@ export default function Topup({
                             <div>
                                 <div className="font-semibold">Enter your own amount</div>
                                 <div className="text-xs text-dim">
-                                    {money(activeCurrency.min, activeCurrency.symbol)} – {money(activeCurrency.max, activeCurrency.symbol)} · {formatCoins(100 * activeCurrency.coins_per_cent, 0)} coins per{' '}
+                                    {formatCoins(100 * activeCurrency.coins_per_cent, 0)} coins per{' '}
                                     {money(100, activeCurrency.symbol)}
                                 </div>
                             </div>
@@ -233,11 +233,6 @@ export default function Topup({
                                 ))}
                             </div>
                         </div>
-                        {usingCustom && custom !== '' && !customValid && (
-                            <p className="mt-2 text-xs text-red-300">
-                                Enter an amount between {money(activeCurrency.min, activeCurrency.symbol)} and {money(activeCurrency.max, activeCurrency.symbol)}.
-                            </p>
-                        )}
                         {usingCustom && customValid && (
                             <p className="mt-2 flex items-center gap-1.5 text-sm text-white/80">
                                 You get <CoinIcon className="size-4" /> <b className="text-white">{formatCoins(customCents * activeCurrency.coins_per_cent, 0)}</b> coins
@@ -290,7 +285,7 @@ export default function Topup({
                         ))}
                     </div>
                     <div className="flex items-center gap-2 px-1 text-xs text-dim">
-                        <BadgeCheck className="size-4 text-lime" /> Secure checkout · 256-bit SSL · Daily limit {money(activeCurrency.daily_limit, activeCurrency.symbol)}
+                        <BadgeCheck className="size-4 text-lime" /> Secure checkout · 256-bit SSL
                     </div>
                 </aside>
             </div>

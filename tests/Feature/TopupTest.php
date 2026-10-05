@@ -62,19 +62,22 @@ class TopupTest extends TestCase
         $this->assertSame($expected, $user->fresh()->balance);
     }
 
-    public function test_custom_amount_limits_and_profile_requirement(): void
+    public function test_custom_amount_and_profile_requirement(): void
     {
         $user = User::factory()->create();
-        $this->actingAs($user)->post('/topup', ['amount' => 1, 'currency' => 'EUR']);          // below €5
-        $this->actingAs($user)->post('/topup', ['amount' => 5000, 'currency' => 'EUR']);       // above €1,000
+        $this->actingAs($user)->post('/topup', ['amount' => 0, 'currency' => 'EUR']);          // invalid amount <= 0
         $this->assertSame(0, Payment::count());
 
         $this->actingAs($user)->post('/topup', ['amount' => 12.5, 'currency' => 'EUR']);
         $this->assertSame(1250, Payment::firstOrFail()->amount);
 
+        // Any custom amount (e.g. 5000 EUR) is allowed
+        $this->actingAs($user)->post('/topup', ['amount' => 5000, 'currency' => 'EUR']);
+        $this->assertNotNull(Payment::where('amount', 500000)->first());
+
         $incomplete = User::factory()->create(['address_line' => null]);
         $this->actingAs($incomplete)->post('/topup', ['package' => 'basic'])->assertRedirect('/settings/profile');
-        $this->assertSame(1, Payment::count());
+        $this->assertSame(2, Payment::count());
     }
 
     public function test_sandbox_link_requires_signature(): void
