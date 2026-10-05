@@ -85,6 +85,18 @@ class TopupTest extends TestCase
         $this->assertSame('pending', $payment->fresh()->status);
     }
 
+    public function test_invoice_pdf_download(): void
+    {
+        $user = User::factory()->create();
+        $payment = app(PaymentService::class)->create($user, 'starter', null, 'GBP');
+        app(PaymentService::class)->complete($payment);
+
+        $response = $this->actingAs($user)->get('/topup/'.$payment->id.'/invoice');
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'application/pdf');
+        $this->assertStringStartsWith('%PDF-', $response->getContent());
+    }
+
     public function test_notifications_endpoint_and_lottery_win_notification(): void
     {
         config(['casino.lottery.ticket_price' => 1000, 'casino.lottery.seed_pool' => 100_000]);

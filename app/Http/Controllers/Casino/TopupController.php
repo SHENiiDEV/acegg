@@ -83,6 +83,21 @@ class TopupController extends Controller
         return Inertia::render('casino/topup-result', ['payment' => $payment->present()]);
     }
 
+    /** Download PDF invoice. */
+    public function invoice(Request $request, Payment $payment): HttpResponse
+    {
+        abort_unless($payment->user_id === $request->user()->id, 404);
+
+        $invoiceService = app(\App\Services\Invoice\InvoiceService::class);
+        $pdf = $invoiceService->generatePdf($payment);
+        $filename = $invoiceService->filename($payment);
+
+        return response($pdf, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+        ]);
+    }
+
     // ------------------------------------------------------------ sandbox checkout (dev only)
 
     public function sandbox(Request $request, Payment $payment): Response

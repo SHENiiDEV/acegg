@@ -37,6 +37,7 @@ Route::middleware('auth')->group(function () {
 
     Route::post('topup', [TopupController::class, 'store'])->name('topup.store')->middleware('throttle:10,1');
     Route::get('topup/{payment}', [TopupController::class, 'result'])->name('topup.result');
+    Route::get('topup/{payment}/invoice', [TopupController::class, 'invoice'])->name('topup.invoice');
     Route::get('topup/{payment}/sandbox', [TopupController::class, 'sandbox'])->name('topup.sandbox')->middleware('signed');
     Route::post('topup/{payment}/sandbox', [TopupController::class, 'sandboxDecide'])->name('topup.sandbox.decide')->middleware('signed');
 

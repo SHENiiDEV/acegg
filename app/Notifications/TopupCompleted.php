@@ -34,6 +34,10 @@ class TopupCompleted extends Notification implements ShouldQueue
         $p = $this->payment;
         $symbol = $p->symbol();
 
+        $invoiceService = app(\App\Services\Invoice\InvoiceService::class);
+        $pdfContent = $invoiceService->generatePdf($p);
+        $filename = $invoiceService->filename($p);
+
         return (new MailMessage)
             ->subject('Your '.config('app.name').' purchase receipt — '.number_format($p->totalCoins() / 100).' coins')
             ->view('emails.receipt', [
@@ -44,6 +48,9 @@ class TopupCompleted extends Notification implements ShouldQueue
                 'bonus' => number_format($p->bonus_coins / 100),
                 'total' => number_format($p->totalCoins() / 100),
                 'balance' => number_format($notifiable->fresh()->balance / 100, 2),
+            ])
+            ->attachData($pdfContent, $filename, [
+                'mime' => 'application/pdf',
             ]);
     }
 

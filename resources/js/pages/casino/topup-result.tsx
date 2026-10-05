@@ -37,10 +37,20 @@ export default function TopupResult({ payment }: { payment: Payment }) {
                 <div className="mt-2 text-xs text-dim">
                     Order #{payment.id.slice(0, 8).toUpperCase()} · {payment.currency} {(payment.amount / 100).toFixed(2)}
                 </div>
-                <div className="mt-6 flex justify-center gap-2">
+                <div className="mt-6 flex flex-wrap justify-center gap-2">
                     <Link href="/games" className="rounded-xl bg-lime px-5 py-3 text-sm font-bold text-lime-ink">
                         Play now
                     </Link>
+                    {payment.status === 'paid' && (
+                        <a
+                            href={`/topup/${payment.id}/invoice`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-xl bg-surface-2 px-5 py-3 text-sm font-semibold hover:bg-line"
+                        >
+                            Download Invoice (PDF)
+                        </a>
+                    )}
                     <Link href="/topup" className="rounded-xl bg-surface-2 px-5 py-3 text-sm font-semibold hover:bg-line">
                         {payment.status === 'failed' ? 'Try again' : 'Buy more'}
                     </Link>
